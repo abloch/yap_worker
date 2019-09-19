@@ -1,0 +1,78 @@
+version: "3.3"
+services:
+
+  sender:
+    build:
+      context: ./
+    volumes:
+      - ../datasets:/opt/datasets
+    command:
+      sh -c 'sleep 20 ; python3 /opt/worker/sender.py /opt/datasets/merged.csv'
+    environment:
+      - RABBIT_HOST=rabbit
+    deploy:
+      restart_policy: 
+        condition: none
+      placement:
+        constraints:
+          - node.role == manager
+
+  worker:
+    build:
+      context: ./
+    command:
+      sh -c '/opt/wait-for.sh yap:8000 --  python3 /opt/worker/worker.py'
+    environment:
+      - RABBIT_HOST=rabbit
+      - YAP_URL=http://yap:8000/yap/heb/joint
+      - YAP_HOST=yap
+      - OUTFILE=/opt/yapped/raw.json
+    deploy:
+      mode: replicated
+      replicas: 1
+    depends_on:
+      - yap
+
+      
+  aggregator:
+    build:
+      context: ./
+    volumes:
+      - ../datasets:/opt/datasets
+    command:
+      sh -c 'echo starting... ; sleep 15 ; python3 /opt/worker/aggregator.py'
+    environment:
+      - RABBIT_HOST=rabbit
+      - OUTFILE=/opt/datasets/out.json
+    depends_on:
+      - worker
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+  
+            
+  rabbit:
+    image: rabbitmq:3-management
+    ports:
+      - 5672
+      - 15672:15672
+
+  yap:
+    ports:
+      - 8000
+    labels:
+      ha-proxy.host: yap
+    deploy:
+      mode: replicated
+      replicas: 1
+    image: akiva/yap  
+
+    # image: python:3.7-alpine
+    # volumes:
+    #   - ./mock_yap:/opt/mock_yap
+    # command: python -m http.server 8000
+    # working_dir:
+    #   /opt/mock_yap
+
+
